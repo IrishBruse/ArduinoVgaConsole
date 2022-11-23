@@ -1,93 +1,101 @@
 #include <Arduino.h>
-#include <ezButton.h>
 #include <VGAX.h>
-#include "point.h"
-// #include "images.h"
+#include <VGAXUtils.h>
+#include "rng.h"
+#include "sprites.h"
 
 #define JoyX A5
 #define JoyY A4
-typedef unsigned long long u64;
 
-byte col = 0;
+struct V2
+{
+    int8_t x = 0;
+    int8_t y = 0;
+};
 
-ezButton joyButton(2);
+constexpr u8 BLACK = 0;
+constexpr u8 RED = 1;
+constexpr u8 GREEN = 2;
+constexpr u8 YELLOW = 3;
 
-Point player;
-Point enemies[16];
+static int8_t vy = 1;
+static V2 player;
+static V2 prev;
 
-u8 oldx = 0;
-u8 oldy = 0;
-
-unsigned int lastMove = 0;
+constexpr int EnemiesCount = 1;
+static V2 enemies[EnemiesCount] = {};
 
 void setup()
 {
+    player.x = 5;
+    player.y = 10;
+    for (size_t i = 0; i < EnemiesCount; i++)
+    {
+        enemies[i].x = rng(VGAX_WIDTH - 20) + 20;
+        enemies[i].y = 5;
+    }
 
     VGAX::begin();
 
     pinMode(LED_BUILTIN, OUTPUT);
     digitalWrite(LED_BUILTIN, 0);
 
-    joyButton.setDebounceTime(50);
+    pinMode(12, INPUT_PULLUP);
 
-    for (int y = 0; y != VGAX_HEIGHT; y++)
-    {
-        for (int x = 0; x != VGAX_WIDTH; x++)
-        {
-            if (x == 0 || x == VGAX_WIDTH - 1 || y == 0 || y == VGAX_HEIGHT - 1)
-            {
-                VGAX::putpixel(x, y, 1);
-            }
-            else
-            {
-                VGAX::putpixel(x, y, 0);
-            }
-        }
-    }
+    VGAXUtils::draw_row(VGAX_HEIGHT - 1, 0, VGAX_WIDTH, GREEN);
 }
+
+static u32 last = 0;
+static u8 oldstate = 0;
 
 void loop()
 {
-    u16 jx = analogRead(JoyX);
-    u16 jy = analogRead(JoyY);
+    u8 state = digitalRead(12);
+    prev.x = player.x;
+    prev.y = player.y;
 
-    if (VGAX::millis() - lastMove > 16)
+    if (VGAX::millis() - last > 200)
     {
-        if (jx > 512 + 256)
+        for (size_t i = 0; i < EnemiesCount; i++)
         {
-            lastMove = VGAX::millis();
-            player.x--;
-        }
-        else if (jx < 512 - 256)
-        {
-            lastMove = VGAX::millis();
-            player.x++;
+            VGAXUtils::draw_line(enemies[i].x + 9, 0, enemies[i].x + 9, 20, BLACK);
+
+            enemies[i].x--;
         }
 
-        if (jy > 512 + 256)
+        player.y += vy;
+
+        vy++;
+        if (vy > 5)
         {
-            lastMove = VGAX::millis();
-            player.y++;
+            vy = 5;
         }
-        else if (jy < 512 - 256)
+
+        if (player.y > VGAX_HEIGHT - IMG_BIRD_HEIGHT - 1)
         {
-            lastMove = VGAX::millis();
-            player.y--;
+            player.y = 5;
         }
+        if (player.y < 0)
+        {
+            player.y = 0;
+        }
+
+        for (size_t i = 0; i < EnemiesCount; i++)
+        {
+            VGAX::fillrect(enemies[i].x, 0, 8, 20, GREEN);
+        }
+
+        VGAX::fillrect(prev.x, prev.y, IMG_BIRD_WIDTH, IMG_BIRD_HEIGHT, BLACK);
+        VGAX::blitwmask((byte *)(img_bird_data[0]), (byte *)(img_bird_mask_data[0]), IMG_BIRD_WIDTH, IMG_BIRD_HEIGHT, player.x, player.y);
+
+        last = VGAX::millis();
     }
 
-    player.loop();
-}
+    if (state == 1 && oldstate == 0)
+    {
+        vy = -5;
+    }
 
-static u32 rand_next = 1;
-
-u32 rng()
-{
-    rand_next = rand_next * 1103515245UL + 12345;
-    return rand_next + ((unsigned)(rand_next / 65536) % 32768);
-}
-
-u8 rng(u8 range)
-{
-    return (u8)(random() % range);
+    oldstate = state;
+    VGAX::delay(10);
 }
